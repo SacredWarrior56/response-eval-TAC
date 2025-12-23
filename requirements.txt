@@ -1,3 +1,4 @@
 python-dotenv
 hyperbrowser
 playwright
+openai
