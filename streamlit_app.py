@@ -1,3 +1,3 @@
 #THIS WILL BE THE MAIN STREAMLIT APP
 #ALL ENDPOINTS WILL BE HANDLED HERE
-print("Hello World")
+print("Hello World ok")
