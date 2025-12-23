@@ -109,64 +109,74 @@ async def extract_response(page, response_index=-1):
 
 async def submit_query(page, query, query_id, total_queries):
     """Submit a single query to the chatbot."""
-    print(f"Clicking input field for query {query_id}/{total_queries}")
+    try:
+        print(f"Clicking input field for query {query_id}/{total_queries}")
 
-    existing_count = await page.evaluate(f'''
-        () => {{
-            return document.querySelectorAll("{RESPONSE_CONTAINER_SELECTOR}").length;
-        }}
-    ''')
-
-    print(f"  Existing responses before query: {existing_count}")
-    await page.click(INPUT_FIELD_SELECTOR)
-    await asyncio.sleep(1)
-
-    await page.type(INPUT_FIELD_SELECTOR, query)
-    await asyncio.sleep(1)
-
-    print(f"Submitting query {query_id}/{total_queries}")
-    await page.keyboard.press("Enter")
-
-    print(f"  Waiting for new response to appear...")
-    max_wait = 15
-    start = asyncio.get_event_loop().time()
-    
-    while (asyncio.get_event_loop().time() - start) < max_wait:
-        current_count = await page.evaluate(f'''
+        existing_count = await page.evaluate(f'''
             () => {{
                 return document.querySelectorAll("{RESPONSE_CONTAINER_SELECTOR}").length;
             }}
         ''')
-        
-        if current_count > existing_count:
-            print(f"  ✓ New response appeared! (count: {existing_count} → {current_count})")
-            break
-        
-        await asyncio.sleep(0.5)
 
-    response_complete = await wait_for_response_completion(page)
+        print(f"  Existing responses before query: {existing_count}")
+        await page.click(INPUT_FIELD_SELECTOR)
+        await asyncio.sleep(1)
 
-    if not response_complete:
-        print(f"Response not completed in time")
+        await page.type(INPUT_FIELD_SELECTOR, query)
+        await asyncio.sleep(1)
+
+        print(f"Submitting query {query_id}/{total_queries}")
+        await page.keyboard.press("Enter")
+
+        print(f"  Waiting for new response to appear...")
+        max_wait = 15
+        start = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start) < max_wait:
+            current_count = await page.evaluate(f'''
+                () => {{
+                    return document.querySelectorAll("{RESPONSE_CONTAINER_SELECTOR}").length;
+                }}
+            ''')
+            
+            if current_count > existing_count:
+                print(f"  ✓ New response appeared! (count: {existing_count} → {current_count})")
+                break
+            
+            await asyncio.sleep(0.5)
+
+        response_complete = await wait_for_response_completion(page)
+
+        if not response_complete:
+            print(f"Response not completed in time")
+            return {
+                'query': query,
+                'response': None,
+                'status': "timeout",
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        print("Extracting response...")
+        response = await extract_response(page)
+
+        preview = response[:100] if len(response) > 100 else response
+        print(f"Response {query_id}/{total_queries}: {preview}")
+
+        return {
+            'query': query,
+            'response': response,
+            'status': "success",
+            'timestamp': datetime.now().isoformat() 
+        }
+    except Exception as e:
+        print(f"Error in submit_query: {e}")
         return {
             'query': query,
             'response': None,
-            'status': "timeout",
+            'status': "error",
+            'error': str(e),
             'timestamp': datetime.now().isoformat()
         }
-    
-    print("Extracting response...")
-    response = await extract_response(page)
-
-    preview = response[:100] if len(response) > 100 else response
-    print(f"Response {query_id}/{total_queries}: {preview}")
-
-    return {
-        'query': query,
-        'response': response,
-        'status': "success",
-        'timestamp': datetime.now().isoformat() 
-    }
 
 
 async def cartrade_chatbot_scraper(queries=None):
@@ -224,6 +234,16 @@ async def cartrade_chatbot_scraper(queries=None):
         print(f"Error in scraper: {e}")
         import traceback
         traceback.print_exc()
+
+        if not results and queries:
+            for query_id, query in enumerate(queries, 1):
+                results.append({
+                    'query': query,
+                    'response': None,
+                    'status': "failed",
+                    'error': str(e),
+                    'timestamp': datetime.now().isoformat()
+                })
         
     finally:
         if session:
