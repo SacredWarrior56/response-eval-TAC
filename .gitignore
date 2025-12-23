@@ -1,0 +1,17 @@
+myenv
+.env
+!.env.example
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+*.json
+
+screenshots/
+*.png
+*.jpg
+!assets/*.png
+!assets/*.jpg
