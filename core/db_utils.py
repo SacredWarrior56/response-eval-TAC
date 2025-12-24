@@ -225,3 +225,18 @@ def get_recent_responses(run_id, limit=50):
         cur.close()
         conn.close()
 
+def get_all_run_headers():
+    """Get list of all runs for sidebar."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, name, status, created_at, completed_at
+            FROM runs
+            ORDER BY created_at DESC
+        """)
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+

@@ -3,6 +3,7 @@ import asyncio
 import argparse
 import sys
 import traceback
+import uuid
 from core.wrapper import ScraperWrapper
 from core.db_utils import (
     ensure_metadata_column, init_agents, create_run, 
@@ -20,48 +21,66 @@ async def main(num_runs):
     agent_ids = {k.lower(): v for k, v in raw_agent_ids.items()}
     print("Agents initialized:", agent_ids)
     
-    # 2. Create Run Record
-    run_id = create_run("Batch Execution", num_runs)
-    print(f"Run ID created: {run_id}")
+    # 2. Setup Batch Context
+    batch_uuid = str(uuid.uuid4())[:8]
+    print(f"Batch ID: {batch_uuid}")
     
     wrapper = ScraperWrapper()
     
     try:
         for i in range(num_runs):
-            print(f"=== Starting Run {i+1}/{num_runs} ===")
+            # Create DISTINCT run record
+            run_name = f"Run {i+1}/{num_runs} [Batch {batch_uuid}]"
+            current_run_id = create_run(run_name, 1) # Plan is 1 for this individual run
+            print(f"=== Starting Run {i+1}/{num_runs} (ID: {current_run_id}) ===")
             
-            # Callback to log to DB
+            # Callback to log to DB (captures current_run_id)
             async def on_result(res):
                 source = res.get('source', 'Unknown')
                 text = res.get('response') or ""
                 query = res.get('query', "")
                 
-                # Metadata
+                # Normalize Time Taken
+                time_taken = res.get('response_time_seconds') or res.get('processing_time_seconds') or 0.0
+                
+                # Metadata Base
                 meta = {
                     'metrics': {
                         k: v for k, v in res.items() 
                         if k not in ['source', 'response', 'query']
-                    }
+                    },
+                    'batch_id': batch_uuid,
+                    'run_index': i+1,
+                    # Explicit Top-Level Fields as requested
+                    'time_taken': float(f"{time_taken:.2f}"),
                 }
+                
+                # Vyas Specific: Conversation ID
+                if source.lower() == 'vyas':
+                    conv_file = res.get('conversation_file')
+                    if conv_file:
+                        meta['conversation_id'] = conv_file
                 
                 # Log
                 agent_id = agent_ids.get(source)
                 if agent_id:
-                    log_response(run_id, agent_id, query, text, meta)
-                    print(f"Logged {source} result for query: {query[:30]}...")
-            
+                    log_response(current_run_id, agent_id, query, text, meta)
+                    if source.lower() == 'vyas':
+                        print(f"Logged {source} result (Time: {time_taken:.2f}s, ID: {meta.get('conversation_id', 'N/A')})")
+                    else:
+                        print(f"Logged {source} result (Time: {time_taken:.2f}s)")
+
             # Execute
             await wrapper.run_all(DEFAULT_QUERIES, on_result=on_result)
             
+            update_run_status(current_run_id, 'completed')
             print(f"=== Completed Run {i+1}/{num_runs} ===")
             
-        update_run_status(run_id, 'completed')
-        print("All runs completed successfully.")
+        print("All runs in batch completed successfully.")
         
     except Exception as e:
-        print(f"Run failed: {e}")
+        print(f"Batch execution failed: {e}")
         traceback.print_exc()
-        update_run_status(run_id, 'failed')
         sys.exit(1)
 
 if __name__ == "__main__":
