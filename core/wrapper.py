@@ -48,7 +48,7 @@ class ScraperWrapper:
         
         async def run_one(q, idx):
             # No stagger, let's go fast
-            retries = 3
+            retries = 10
             last_err = None
             for attempt in range(retries):
                 try:
