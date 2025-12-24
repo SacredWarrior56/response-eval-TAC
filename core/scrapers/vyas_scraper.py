@@ -138,7 +138,13 @@ async def submit_query(page, query, query_id, total_queries):
         
         # Retry extraction if empty (sometimes DOM lags behind Stop button)
         # Retry extraction if empty or just loading text (sometimes DOM lags behind Stop button)
-        LOADING_PHRASES = ["interpreting your query", "thinking", "generating response", "please wait"]
+        LOADING_PHRASES = [
+            "interpreting your query", 
+            "thinking", 
+            "generating response", 
+            "please wait",
+            "verifying query"
+        ]
         
         for _ in range(15): # Retry up to 15 times (30 seconds)
             is_loading = False
@@ -148,7 +154,21 @@ async def submit_query(page, query, query_id, total_queries):
                     if phrase in lower_resp and len(response) < 200: # Assuming loading text is short
                         is_loading = True
                         break
-            
+                
+                # generic short text check
+                if len(response) < 50:
+                    is_loading = True
+                
+                # Domain specific markers check (User provided)
+                # Must contain one of these to be valid
+                markers = ["car results", "follow-up question", "no cars found"]
+                if not any(m in lower_resp for m in markers):
+                    # If valid markers are missing, it might be incomplete or just a chatter intro
+                    # Treat as loading? Yes, unless it's very long? 
+                    # User said "SURESHOT", so we enforce it.
+                    # check if we have enough retries left? We have 15.
+                    is_loading = True
+
             if not response or is_loading:
                 print(f"Response unexpected (Empty: {not response}, Loading: {is_loading}), retrying extraction...")
                 await asyncio.sleep(2)

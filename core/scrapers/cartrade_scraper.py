@@ -123,11 +123,11 @@ async def wait_for_response_completion(page, max_wait_time=60, response_index=-1
                         await asyncio.sleep(check_interval)
                         continue
                 
-                return True
+                return current_text
         
         await asyncio.sleep(check_interval)
     
-    return False
+    return last_text
 
 
 async def extract_response(page, response_index=-1):
@@ -192,13 +192,13 @@ async def submit_query(page, query, query_id, total_queries):
             
             await asyncio.sleep(0.5)
 
-        response_complete = await wait_for_response_completion(page, max_wait_time=300)
+        response_text = await wait_for_response_completion(page, max_wait_time=300)
 
         response_end_time = time.time()
         response_duration = response_end_time - submit_start_time
 
-        if not response_complete:
-            print(f"Response not completed in time")
+        if not response_text:
+            print(f"Response not completed in time or empty")
             return {
                 'query': query,
                 'response': None,
@@ -207,8 +207,8 @@ async def submit_query(page, query, query_id, total_queries):
                 'timestamp': datetime.now().isoformat()
             }
         
-        print("Extracting response...")
-        response = await extract_response(page)
+        print("Response captured via stability check.")
+        response = response_text
 
         preview = response[:100] if len(response) > 100 else response
         print(f"Response {query_id}/{total_queries}: {preview}")

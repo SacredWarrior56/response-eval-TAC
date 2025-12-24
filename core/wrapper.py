@@ -153,9 +153,11 @@ class ScraperWrapper:
 
     async def run_all(self, queries, on_result=None):
         """
-        Run all scrapers concurrently.
+        Run all scrapers with optimized batching:
+        - ChatGPT runs in parallel (threaded).
+        - Scrapers run in two batches: (Vyas Half + CarTrade Half) -> (Rest Vyas + Rest CarTrade)
         """
-        print(f"Starting all scrapers concurrent execution with {len(queries)} queries...")
+        print(f"Starting optimized execution with {len(queries)} queries...")
         start_time = asyncio.get_event_loop().time()
         
         # Helper callbacks
@@ -166,30 +168,69 @@ class ScraperWrapper:
                 await on_result(res)
             return wrapped_cb
         
-        # Launch everything sequentially as per user request to avoid concurrency limits
-        print("Executing Vyas first...")
-        vyas_res = await self.run_vyas(queries, on_result=create_callback('vyas'))
+        cb_vyas = create_callback('vyas')
+        cb_cartrade = create_callback('cartrade')
+        cb_chatgpt = create_callback('chatgpt')
+
+        # Split queries
+        n = len(queries)
+        mid = n // 2 + (1 if n % 2 != 0 else 0) 
+        batch1 = queries[:mid]
+        batch2 = queries[mid:]
         
-        print("Executing CarTrade second...")
-        cartrade_res = await self.run_cartrade(queries, on_result=create_callback('cartrade'))
-        
-        print("Executing ChatGPT third...")
-        chatgpt_res = await self.run_chatgpt(queries, on_result=create_callback('chatgpt'))
-        
-        results_list = [chatgpt_res, cartrade_res, vyas_res]
+        print(f"Split queries into Batch 1 ({len(batch1)}) and Batch 2 ({len(batch2)})")
+
+        # Task: Scraper Sequence
+        async def run_scrapers_sequence():
+             # Batch 1: Run Vyas and CarTrade concurrently for first half
+             print(">> Running Batch 1: Vyas and CarTrade concurrently...")
+             v1_task = self.run_vyas(batch1, on_result=cb_vyas)
+             c1_task = self.run_cartrade(batch1, on_result=cb_cartrade)
+             
+             v1_res_obj, c1_res_obj = await asyncio.gather(v1_task, c1_task)
+             
+             v1 = v1_res_obj.get('data', [])
+             c1 = c1_res_obj.get('data', [])
+             
+             # Cool down
+             print(">> Cooling down (5s)...")
+             await asyncio.sleep(5)
+
+             # Batch 2: Run Vyas and CarTrade concurrently for second half
+             print(">> Running Batch 2: Vyas and CarTrade concurrently...")
+             v2_task = self.run_vyas(batch2, on_result=cb_vyas)
+             c2_task = self.run_cartrade(batch2, on_result=cb_cartrade)
+             
+             v2_res_obj, c2_res_obj = await asyncio.gather(v2_task, c2_task)
+             
+             v2 = v2_res_obj.get('data', [])
+             c2 = c2_res_obj.get('data', [])
+             
+             # Helper to merge dict results
+             def build_result(data_list, duration, status):
+                 return {'data': data_list, 'duration': duration, 'status': status}
+            
+             return (
+                 build_result(v1+v2, v1_res_obj.get('duration',0)+v2_res_obj.get('duration',0), 'success'),
+                 build_result(c1+c2, c1_res_obj.get('duration',0)+c2_res_obj.get('duration',0), 'success')
+             )
+
+        # Chat Task
+        print(">> Launching ChatGPT in parallel...")
+        task_chat = asyncio.create_task(self.run_chatgpt(queries, on_result=cb_chatgpt))
+        task_scrapers = asyncio.create_task(run_scrapers_sequence())
+
+        # Wait for both
+        chatgpt_res, (vyas_res, cartrade_res) = await asyncio.gather(task_chat, task_scrapers)
         
         total_duration = asyncio.get_event_loop().time() - start_time
-        chatgpt_res, cartrade_res, vyas_res = results_list
         
-        final_results = {}
-        for name, res in zip(['chatgpt', 'cartrade', 'vyas'], [chatgpt_res, cartrade_res, vyas_res]):
-            if isinstance(res, Exception):
-                 final_results[name] = {"data": None, "error": str(res), "duration": 0, "status": "system_error"}
-            else:
-                final_results[name] = res
-        
-        final_results['total_duration'] = total_duration
-        return final_results
+        return {
+            'cartrade': cartrade_res,
+            'vyas': vyas_res,
+            'chatgpt': chatgpt_res,
+            'total_duration': total_duration
+        }
 
 
 
