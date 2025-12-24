@@ -6,6 +6,7 @@ from hyperbrowser import AsyncHyperbrowser
 from hyperbrowser.models import CreateSessionParams
 from playwright.async_api import async_playwright
 from datetime import datetime
+import time
 import json
 
 # Load environment variables
@@ -46,12 +47,12 @@ QUERIES = ["What are the best SUVs?", "Show me sedans with best mileage"]
 async def wait_for_response_completion(page, max_wait_time=60, response_index=-1):
     """Wait for chatbot response by polling until text stabilizes."""
     
-    await asyncio.sleep(10)
+    await asyncio.sleep(3)
     
-    await page.wait_for_selector(RESPONSE_CONTAINER_SELECTOR, timeout=15000)
+    await page.wait_for_selector(RESPONSE_CONTAINER_SELECTOR, timeout=60000)
     
-    stability_duration = 3.0
-    check_interval = 1.5
+    base_stability_duration = 12.0
+    check_interval = 1.0
     
     start_time = asyncio.get_event_loop().time()
     last_text = ""
@@ -74,12 +75,54 @@ async def wait_for_response_completion(page, max_wait_time=60, response_index=-1
             }}
         ''', response_index)
         
+        # Adjust stability requirement based on text length
+        # Start of generation is often slow/pausing.
+        if len(current_text) < 100:
+            stability_duration = 20.0 # Wait 20s if text is short
+        else:
+            stability_duration = base_stability_duration
+        
+        # If text is empty, don't count it as stable "done" state, keep waiting
+        # unless we are very close to timeout? No, just reset change time.
+        if not current_text:
+            last_change_time = asyncio.get_event_loop().time()
+            await asyncio.sleep(check_interval)
+            continue
+
         if current_text != last_text:
             last_text = current_text
             last_change_time = asyncio.get_event_loop().time()
         else:
             time_stable = asyncio.get_event_loop().time() - last_change_time
+            # Check for loading phrases
+            is_loading_text = False
+            LOADING_PHRASES = [
+                "Interpreting your query",
+                "Thinking",
+                "Generating response",
+                "Please wait"
+            ]
+            for phrase in LOADING_PHRASES:
+                if phrase.lower() in current_text.lower():
+                    is_loading_text = True
+                    break
+            
+            if is_loading_text:
+                    # It's a loading state, keep waiting even if stable
+                await asyncio.sleep(check_interval)
+                continue
+
             if time_stable >= stability_duration:
+                # Heuristic: If it doesn't end with a sentence terminator, it might be stuck or paused.
+                # Continue waiting unless we are approaching max_wait_time (e.g. within 10s of limit)
+                time_elapsed = asyncio.get_event_loop().time() - start_time
+                if time_elapsed < (max_wait_time - 10):
+                    truncated = not (current_text.endswith('.') or current_text.endswith('!') or current_text.endswith('?') or current_text.endswith('"') or current_text.endswith('\n'))
+                    if truncated and len(current_text) > 0:
+                        # It looks incomplete, keep waiting even if stable
+                        await asyncio.sleep(check_interval)
+                        continue
+                
                 return True
         
         await asyncio.sleep(check_interval)
@@ -122,14 +165,18 @@ async def submit_query(page, query, query_id, total_queries):
         await page.click(INPUT_FIELD_SELECTOR)
         await asyncio.sleep(1)
 
-        await page.type(INPUT_FIELD_SELECTOR, query)
+        # Use fill to ensure field is clear and text is entered properly
+        await page.fill(INPUT_FIELD_SELECTOR, "")
+        await asyncio.sleep(0.5)
+        await page.fill(INPUT_FIELD_SELECTOR, query)
         await asyncio.sleep(1)
 
         print(f"Submitting query {query_id}/{total_queries}")
+        submit_start_time = time.time()
         await page.keyboard.press("Enter")
 
         print(f"  Waiting for new response to appear...")
-        max_wait = 15
+        max_wait = 30
         start = asyncio.get_event_loop().time()
         
         while (asyncio.get_event_loop().time() - start) < max_wait:
@@ -145,7 +192,10 @@ async def submit_query(page, query, query_id, total_queries):
             
             await asyncio.sleep(0.5)
 
-        response_complete = await wait_for_response_completion(page)
+        response_complete = await wait_for_response_completion(page, max_wait_time=300)
+
+        response_end_time = time.time()
+        response_duration = response_end_time - submit_start_time
 
         if not response_complete:
             print(f"Response not completed in time")
@@ -153,6 +203,7 @@ async def submit_query(page, query, query_id, total_queries):
                 'query': query,
                 'response': None,
                 'status': "timeout",
+                'response_time_seconds': response_duration,
                 'timestamp': datetime.now().isoformat()
             }
         
@@ -166,6 +217,9 @@ async def submit_query(page, query, query_id, total_queries):
             'query': query,
             'response': response,
             'status': "success",
+            'response_time_seconds': response_duration,
+            'response_length_chars': len(response),
+            'response_word_count': len(response.split()),
             'timestamp': datetime.now().isoformat() 
         }
     except Exception as e:
@@ -179,13 +233,18 @@ async def submit_query(page, query, query_id, total_queries):
         }
 
 
-async def cartrade_chatbot_scraper(queries=None):
+async def cartrade_chatbot_scraper(queries=None, api_key=None, on_result=None):
     """Main scraper function using Hyperbrowser + Playwright."""
     if queries is None:
         queries = QUERIES
     
-    print("Initializing AsyncHyperbrowser...")
-    client = AsyncHyperbrowser(api_key=HYPERBROWSER_API_KEY)
+    # Use provided key or fallback to default environment variable
+    target_api_key = api_key or HYPERBROWSER_API_KEY
+    if not target_api_key:
+        raise ValueError("No Hyperbrowser API key provided and HYPERBROWSER_API_KEY not set")
+
+    print(f"Initializing AsyncHyperbrowser with key ending in ...{str(target_api_key)[-4:]}...")
+    client = AsyncHyperbrowser(api_key=target_api_key)
 
     session = None
     results = []
@@ -214,15 +273,31 @@ async def cartrade_chatbot_scraper(queries=None):
 
             # Open chatbot
             print("Opening chatbot...")
-            await page.wait_for_selector(CHATBOT_CONTAINER_SELECTOR, timeout=10000)
-            await page.click(CHATBOT_CONTAINER_SELECTOR)
-            await asyncio.sleep(2)
+            try:
+                # Wait longer for the initial load
+                await page.wait_for_selector(CHATBOT_CONTAINER_SELECTOR, timeout=60000)
+                await page.click(CHATBOT_CONTAINER_SELECTOR)
+            except Exception:
+                # Retry once if initial click/find fails
+                print("  Retrying chatbot click...")
+                await asyncio.sleep(2)
+                await page.wait_for_selector(CHATBOT_CONTAINER_SELECTOR, timeout=60000)
+                await page.click(CHATBOT_CONTAINER_SELECTOR)
+                
+            await asyncio.sleep(2) # Reduced wait after open
             print("Chatbot opened!")
 
             # Process queries
             for query_id, query in enumerate(queries, 1):
                 result = await submit_query(page, query, query_id, len(queries))
                 results.append(result)
+                
+                # Live Streaming Callback
+                if on_result:
+                    try:
+                        await on_result(result)
+                    except Exception as cb_err:
+                        print(f"Callback error: {cb_err}")
 
                 if query_id < len(queries):
                     print(f"Waiting 3 seconds before next query...")
@@ -232,6 +307,11 @@ async def cartrade_chatbot_scraper(queries=None):
 
     except Exception as e:
         print(f"Error in scraper: {e}")
+        error_str = str(e)
+        # Re-raise critical errors to trigger retry in wrapper
+        if "429" in error_str or "503" in error_str or "Too Many Requests" in error_str or "Service Unavailable" in error_str:
+            raise e
+            
         import traceback
         traceback.print_exc()
 

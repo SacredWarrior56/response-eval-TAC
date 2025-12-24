@@ -6,7 +6,9 @@ from hyperbrowser import AsyncHyperbrowser
 from hyperbrowser.models import CreateSessionParams
 from playwright.async_api import async_playwright
 from datetime import datetime
+import time
 import json
+import re
 
 # Load environment variables
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +55,7 @@ async def wait_for_response_completion(page, max_wait_time=120):
     
     # Wait for Stop button to appear (response is generating)
     try:
-        await page.wait_for_selector(stop_button_selector, timeout=20000)
+        await page.wait_for_selector(stop_button_selector, timeout=60000)
     except Exception:
         # Stop button might not appear if response is very fast
         await asyncio.sleep(2)  # Small delay to ensure response is rendered
@@ -112,27 +114,61 @@ async def submit_query(page, query, query_id, total_queries):
         await page.click(INPUT_AREA_SELECTOR)
         await asyncio.sleep(1)
         
-        # Type query
-        await page.type(INPUT_AREA_SELECTOR, query)
+        # Type query using fill
+        await page.fill(INPUT_AREA_SELECTOR, "")
+        await asyncio.sleep(0.5)
+        await page.fill(INPUT_AREA_SELECTOR, query)
         await asyncio.sleep(1)
         
         # Submit query
+        submit_start_time = time.time()
         await page.keyboard.press("Enter")
         
         # Wait for response completion
-        response_complete = await wait_for_response_completion(page)
+        response_complete = await wait_for_response_completion(page, max_wait_time=300)
         
+        response_end_time = time.time()
+        response_duration = response_end_time - submit_start_time
+
         if not response_complete:
-            print(f"Response not completed in time")
-            return {
-                'query': query,
-                'response': None,
-                'status': "timeout",
-                'timestamp': datetime.now().isoformat()
-            }
+            # Even if timeout, try to extract whatever is there
+            print(f"Response wait timed out (300s), attempting extraction anyway...")
         
-        # Extract response
         response = await extract_response(page)
+        
+        # Retry extraction if empty (sometimes DOM lags behind Stop button)
+        # Retry extraction if empty or just loading text (sometimes DOM lags behind Stop button)
+        LOADING_PHRASES = ["interpreting your query", "thinking", "generating response", "please wait"]
+        
+        for _ in range(15): # Retry up to 15 times (30 seconds)
+            is_loading = False
+            if response:
+                lower_resp = response.lower()
+                for phrase in LOADING_PHRASES:
+                    if phrase in lower_resp and len(response) < 200: # Assuming loading text is short
+                        is_loading = True
+                        break
+            
+            if not response or is_loading:
+                print(f"Response unexpected (Empty: {not response}, Loading: {is_loading}), retrying extraction...")
+                await asyncio.sleep(2)
+                response = await extract_response(page)
+            else:
+                break
+        
+        print(f"Response length: {len(response)} chars")
+        
+        if not response:
+             # Just return what we have (None) but log it prominently
+             print("❌ FINAL: No response extracted even after retries.")
+        
+        # Extract conversation file path if present
+        conversation_file = None
+        # look for pattern all_conversations/convo_*.json
+        match = re.search(r'all_conversations/convo_[^ \n]+\.json', response)
+        if match:
+            conversation_file = match.group(0)
+            print(f"  Found conversation file: {conversation_file}")
         
         preview = response[:100] if len(response) > 100 else response
         print(f"✓ Query {query_id}/{total_queries} completed: {preview}...")
@@ -141,6 +177,10 @@ async def submit_query(page, query, query_id, total_queries):
             'query': query,
             'response': response,
             'status': "success",
+            'conversation_file': conversation_file,
+            'response_time_seconds': response_duration,
+            'response_length_chars': len(response),
+            'response_word_count': len(response.split()),
             'timestamp': datetime.now().isoformat() 
         }
     
@@ -155,13 +195,18 @@ async def submit_query(page, query, query_id, total_queries):
         }
 
 
-async def vyas_chatbot_scraper(queries=None):
+async def vyas_chatbot_scraper(queries=None, api_key=None, on_result=None):
     """Main scraper function using Hyperbrowser + Playwright."""
     if queries is None:
         queries = QUERIES
     
-    print("Initializing AsyncHyperbrowser...")
-    client = AsyncHyperbrowser(api_key=HYPERBROWSER_API_KEY)
+    # Use provided key or fallback to default environment variable
+    target_api_key = api_key or HYPERBROWSER_API_KEY
+    if not target_api_key:
+        raise ValueError("No Hyperbrowser API key provided and HYPERBROWSER_API_KEY not set")
+
+    print(f"Initializing AsyncHyperbrowser with key ending in ...{str(target_api_key)[-4:]}...")
+    client = AsyncHyperbrowser(api_key=target_api_key)
     
     session = None
     results = []
@@ -190,6 +235,7 @@ async def vyas_chatbot_scraper(queries=None):
             
             # Login
             print("Logging in...")
+            await page.wait_for_selector(USERNAME_SELECTOR, timeout=30000)
             await page.fill(USERNAME_SELECTOR, VYAS_USERNAME)
             await page.fill(PASSWORD_SELECTOR, VYAS_PASSWORD)
             await page.click(SUBMIT_BUTTON_SELECTOR)
@@ -204,6 +250,13 @@ async def vyas_chatbot_scraper(queries=None):
                 result = await submit_query(page, query, query_id, len(queries))
                 results.append(result)
                 
+                # Live Streaming Callback
+                if on_result:
+                    try:
+                        await on_result(result)
+                    except Exception as cb_err:
+                        print(f"Callback error: {cb_err}")
+                
                 # Clear memory after each query (except last one)
                 if query_id < len(queries):
                     await clear_memory(page)
@@ -213,6 +266,11 @@ async def vyas_chatbot_scraper(queries=None):
     
     except Exception as e:
         print(f"Error in scraper: {e}")
+        error_str = str(e)
+        # Re-raise critical errors to trigger retry in wrapper
+        if "429" in error_str or "503" in error_str or "Too Many Requests" in error_str or "Service Unavailable" in error_str:
+            raise e
+            
         import traceback
         traceback.print_exc()
         if not results and queries:

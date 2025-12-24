@@ -15,7 +15,7 @@ load_dotenv(ENV_PATH)
 OPENAI_API_KEY = os.getenv("OPENAI_KEY")
 
 # Configuration
-MODEL = "gpt-3.5-turbo"
+MODEL = "gpt-4o-mini"
 MAX_TOKENS = 500
 
 # Default queries
@@ -39,29 +39,49 @@ def submit_query(query, query_id=None, total=None):
         client = OpenAI(api_key=OPENAI_API_KEY)
         start_time = datetime.now()
         
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": query}],
-            max_tokens=MAX_TOKENS
-        )
+        max_retries = 5
+        base_delay = 2
         
-        usage = response.usage
-        result = {
-            'query': query,
-            'response': response.choices[0].message.content,
-            'status': 'success',
-            'model': response.model,
-            'tokens_used': usage.total_tokens,
-            'prompt_tokens': usage.prompt_tokens,
-            'completion_tokens': usage.completion_tokens,
-            'processing_time_seconds': (datetime.now() - start_time).total_seconds(),
-            'timestamp': start_time.isoformat()
-        }
-        
-        if query_id and total:
-            print(f"✓ Query {query_id}/{total} completed ({usage.total_tokens} tokens)")
-        
-        return result
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": query}],
+                    max_tokens=MAX_TOKENS
+                )
+                
+                usage = response.usage
+                result = {
+                    'query': query,
+                    'response': response.choices[0].message.content,
+                    'status': 'success',
+                    'model': response.model,
+                    'tokens_used': usage.total_tokens,
+                    'prompt_tokens': usage.prompt_tokens,
+                    'completion_tokens': usage.completion_tokens,
+                    'response_length_chars': len(response.choices[0].message.content),
+                    'response_word_count': len(response.choices[0].message.content.split()),
+                    'processing_time_seconds': (datetime.now() - start_time).total_seconds(),
+                    'timestamp': start_time.isoformat()
+                }
+                
+                if query_id and total:
+                    print(f"✓ Query {query_id}/{total} completed ({usage.total_tokens} tokens)")
+                
+                return result
+
+            except Exception as e:
+                # Check for rate limit error
+                error_str = str(e)
+                if "429" in error_str or "rate limit" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        print(f"⚠️ Rate limit hit. Waiting {wait_time}s before retry {attempt+1}/{max_retries}...")
+                        time.sleep(wait_time)
+                        continue
+                
+                # If not rate limit or max retries reached, raise to outer block
+                raise e
     except Exception as e:
         if query_id and total:
             print(f"✗ Query {query_id}/{total} failed: {str(e)}")
@@ -74,7 +94,7 @@ def submit_query(query, query_id=None, total=None):
         }
 
 
-def chatgpt_query_processor(queries=None, delay=1):
+def chatgpt_query_processor(queries=None, delay=1, on_result=None):
     """Process multiple queries through ChatGPT API."""
     if not queries:
         queries = QUERIES
@@ -84,6 +104,21 @@ def chatgpt_query_processor(queries=None, delay=1):
     for idx, query in enumerate(queries, 1):
         result = submit_query(query, query_id=idx, total=len(queries))
         results.append(result)
+        
+        # Live Streaming Callback
+        if on_result:
+            try:
+                # If on_result is provided, we try to call it.
+                # Since we are in a thread, we just call it synchronously.
+                # The wrapper provided a sync adapter that handles the async event loop scheduling.
+                if callable(on_result):
+                    print(f"DEBUG: Calling on_result for query {idx}")
+                    on_result(result)
+                else:
+                    print("DEBUG: on_result is not callable")
+            except Exception as cb_err:
+                print(f"Callback error in chatgpt_scraper: {cb_err}")
+                
         if idx < len(queries):
             time.sleep(delay)
     return results
