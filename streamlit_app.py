@@ -28,24 +28,51 @@ all_runs = get_all_run_headers() # Ordered DESC by DB
 # Determine Active Run globally
 global_active_run = get_active_run() # (id, name, created_at)
 
+if global_active_run:
+    # 1. Run Time
+    run_start = global_active_run[2].astimezone(timezone.utc)
+    now_tz = datetime.now(timezone.utc)
+    run_elapsed = now_tz - run_start
+    
+    # 2. Batch Time
+    # Parse Batch ID from Name: "Run X/Y [Batch UUID]"
+    batch_elapsed_str = "0s"
+    try:
+        if "[" in global_active_run[1] and "Batch " in global_active_run[1]:
+            batch_part = global_active_run[1].split("Batch ")[1].split("]")[0]
+            # Find earliest start time for this batch
+            batch_runs = [r for r in all_runs if batch_part in r[1]]
+            if batch_runs:
+                earliest = min([r[3] for r in batch_runs]).astimezone(timezone.utc)
+                batch_time = now_tz - earliest
+                batch_elapsed_str = f"{batch_time.total_seconds():.0f}s"
+    except:
+        batch_elapsed_str = "N/A"
+
+    t1, t2 = st.sidebar.columns(2)
+    t1.metric("Run Time", f"{run_elapsed.total_seconds():.0f}s")
+    t2.metric("Batch Time", batch_elapsed_str)
+    
+    st.sidebar.markdown("---")
+
 # Process for display:
 # We want Run #1, Run #2 labels based on creation time.
-# DB returns DESC (Newest First).
-# So reverse to get Oldest First for indexing.
 runs_asc = sorted(all_runs, key=lambda x: x[3]) # Sort by created_at
 
 run_options = {}
+active_label = None
+
 # Build map: Label -> ID
 for i, r in enumerate(runs_asc):
     rid, name, status, created_at, completed_at = r
-    # Name format: "Run X/Y [Batch ID]"
     time_str = created_at.strftime('%H:%M')
     
-    # Custom Label
     label = f"Run #{i+1} - {name} ({time_str})"
         
     if status == 'running':
         label = f"🟢 {label}"
+        if global_active_run and rid == global_active_run[0]:
+            active_label = label
     elif status == 'completed':
         label = f"✅ {label}"
     elif status == 'terminated':
@@ -61,7 +88,12 @@ if not runs_display_order:
     runs_display_order = ["No Runs Available"]
 
 # Run Selector
-selected_label = st.sidebar.selectbox("Select Run to View", options=runs_display_order)
+# Verify index of active run if exists
+sel_index = 0
+if active_label and active_label in runs_display_order:
+    sel_index = runs_display_order.index(active_label)
+
+selected_label = st.sidebar.selectbox("Select Run to View", options=runs_display_order, index=sel_index)
 selected_run_id = run_options.get(selected_label)
 
 st.sidebar.markdown("---")
@@ -176,17 +208,31 @@ if selected_run_id:
                 for r in filtered:
                     meta = r.get('metadata') or {}
                     metrics_data = meta.get('metrics', {})
-                    m = []
-                    if 'response_time_seconds' in metrics_data: m.append(f"Time: {metrics_data['response_time_seconds']:.2f}s")
-                    if 'response_length_chars' in metrics_data: m.append(f"Chars: {metrics_data['response_length_chars']}")
-                    if 'response_word_count' in metrics_data: m.append(f"Words: {metrics_data['response_word_count']}")
-                    m_str = " | ".join(m)
+                    
+                    # 1. Resolve Time
+                    # Prefer top-level 'time_taken' -> then metrics keys
+                    time_val = meta.get('time_taken')
+                    if time_val is None:
+                        time_val = metrics_data.get('response_time_seconds') or metrics_data.get('processing_time_seconds') or 0.0
+                    
+                    # 2. Resolve Conversation ID
+                    conv_id = meta.get('conversation_id') or metrics_data.get('conversation_file')
+                    
+                    # 3. Other metrics
+                    chars = metrics_data.get('response_length_chars', 'N/A')
+                    words = metrics_data.get('response_word_count', 'N/A')
                     
                     timestamp = r['created_at'].strftime('%H:%M:%S')
                     q_idx = DEFAULT_QUERIES.index(r['query']) + 1 if r['query'] in DEFAULT_QUERIES else '?'
                     
-                    with st.expander(f"{q_idx}. {r['query']} [{timestamp}]"):
-                        st.markdown(f"**Metrics:** {m_str}")
+                    # Header: Query + Time
+                    header = f"{q_idx}. {r['query']} [{timestamp}] — ⏱️ {float(time_val):.2f}s"
+                    
+                    with st.expander(header):
+                        if conv_id:
+                            st.caption(f"🆔 Conversation ID: `{conv_id}`")
+                        
+                        st.caption(f"**Metrics:** Words: {words} | Chars: {chars}")
                         st.text(r['response'])
 
         render_feed(t_vy, 'Vyas')

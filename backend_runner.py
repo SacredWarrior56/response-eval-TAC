@@ -40,22 +40,36 @@ async def main(num_runs):
                 text = res.get('response') or ""
                 query = res.get('query', "")
                 
-                # Metadata
+                # Normalize Time Taken
+                time_taken = res.get('response_time_seconds') or res.get('processing_time_seconds') or 0.0
+                
+                # Metadata Base
                 meta = {
                     'metrics': {
                         k: v for k, v in res.items() 
                         if k not in ['source', 'response', 'query']
                     },
                     'batch_id': batch_uuid,
-                    'run_index': i+1
+                    'run_index': i+1,
+                    # Explicit Top-Level Fields as requested
+                    'time_taken': float(f"{time_taken:.2f}"),
                 }
+                
+                # Vyas Specific: Conversation ID
+                if source.lower() == 'vyas':
+                    conv_file = res.get('conversation_file')
+                    if conv_file:
+                        meta['conversation_id'] = conv_file
                 
                 # Log
                 agent_id = agent_ids.get(source)
                 if agent_id:
                     log_response(current_run_id, agent_id, query, text, meta)
-                    print(f"Logged {source} result: {query[:30]}...")
-            
+                    if source.lower() == 'vyas':
+                        print(f"Logged {source} result (Time: {time_taken:.2f}s, ID: {meta.get('conversation_id', 'N/A')})")
+                    else:
+                        print(f"Logged {source} result (Time: {time_taken:.2f}s)")
+
             # Execute
             await wrapper.run_all(DEFAULT_QUERIES, on_result=on_result)
             
