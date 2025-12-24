@@ -15,3 +15,18 @@ screenshots/
 *.jpg
 !assets/*.png
 !assets/*.jpg
+
+# Python
+venv/
+.env
+__pycache__/
+*.pyc
+
+# Node / Playwright
+node_modules/
+.playwright/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
