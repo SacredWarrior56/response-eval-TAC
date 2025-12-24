@@ -78,3 +78,83 @@
 2025-12-24 17:48:23,154 - INFO - Logged response: 0f870e16-d1ae-494f-8987-fd247298521a (Run: 9b68fd5d-327d-4c28-9166-8444ebd8267b, Agent: 4f9c078d-82be-43f5-aed2-5188231b8de1)
 2025-12-24 17:48:29,881 - INFO - Logged response: 13cf75da-86c6-421b-904c-dfe3bba79a0d (Run: 9b68fd5d-327d-4c28-9166-8444ebd8267b, Agent: 4f9c078d-82be-43f5-aed2-5188231b8de1)
 2025-12-24 17:48:38,660 - INFO - Logged response: 56bc8ec5-ea25-4fa8-8276-01a4282e0e19 (Run: 9b68fd5d-327d-4c28-9166-8444ebd8267b, Agent: 4f9c078d-82be-43f5-aed2-5188231b8de1)
+2025-12-24 19:39:27,814 - INFO - Created Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba (Run 1/2 [Batch 7fa382b6])
+2025-12-24 19:39:39,255 - INFO - Logged response: ffe7c8eb-2c5e-45c4-b744-ce0dd27d0bc3 (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:39:48,082 - INFO - Logged response: 5c980cda-e17c-4db0-8825-07515aa17d49 (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:39:59,981 - INFO - Logged response: a34c637e-05d5-4361-949c-2074967d4ffd (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:40:09,931 - INFO - Logged response: 02acb249-1a00-4800-9785-a5cb64ee8fa1 (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:40:22,774 - INFO - Logged response: 4747f776-b62a-48b9-ae80-f20537eabce7 (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:40:34,727 - INFO - Logged response: 450de260-467b-4290-a51c-8bf62746402a (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1c10b366-9f71-4c19-abdc-c2786bf3f8ff)
+2025-12-24 19:40:37,453 - INFO - Logged response: 53e05d02-ad7d-4960-a0e3-1fbf2e49cdb6 (Run: 12d33678-f86e-4477-8fe6-dd03c247c2ba, Agent: 1b362ce1-0a2e-4dfa-b02a-7c5427dd3042)
+2025-12-24 19:42:15,808 - INFO - Created Run: 443bb9d2-f6a5-481a-9915-97d04e5e07bd (Run 1/2 [Batch dbd91328])
+2025-12-24 19:42:30,132 - INFO - Logged response: 678a392f-7a0f-4fda-bba8-1c5178aa375d (Run: 443bb9d2-f6a5-481a-9915-97d04e5e07bd, Agent: f4e16f06-689a-443b-a2f8-3e76302cc367)
+2025-12-24 19:47:21,018 - INFO - Created Run: 6e36b64d-7b41-4242-a963-bc1c75fcffc2 (Run 1/2 [Batch 01e047de])
+2025-12-24 19:47:30,857 - INFO - Logged response: 5e4da633-578b-4051-9987-6e7d939de058 (Run: 6e36b64d-7b41-4242-a963-bc1c75fcffc2, Agent: b166ce16-6b69-4b19-b009-b509a25c1d00)
+2025-12-24 19:47:37,937 - INFO - Logged response: 7ff1e49a-d71e-4e41-84bf-6b8dfc24c855 (Run: 6e36b64d-7b41-4242-a963-bc1c75fcffc2, Agent: b166ce16-6b69-4b19-b009-b509a25c1d00)
+2025-12-24 19:47:48,021 - INFO - Logged response: aa601fd0-aba2-40f6-8b08-d83c35ad84ae (Run: 6e36b64d-7b41-4242-a963-bc1c75fcffc2, Agent: b166ce16-6b69-4b19-b009-b509a25c1d00)
+2025-12-24 19:47:56,217 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:07,349 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:24,875 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:33,976 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:40,382 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:50,406 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:48:58,230 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:04,366 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:16,343 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:24,402 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:31,421 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:41,142 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:48,416 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:49:59,617 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:50:06,778 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:50:18,024 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:50:24,787 - ERROR - DB Log Error: insert or update on table "responses" violates foreign key constraint "responses_run_id_fkey"
+DETAIL:  Key (run_id)=(6e36b64d-7b41-4242-a963-bc1c75fcffc2) is not present in table "runs".
+
+2025-12-24 19:50:58,269 - INFO - Created Run: 763aeb2e-b653-4946-8b0c-136fbc94d646 (Run 1/2 [Batch cb7ba813])
+2025-12-24 19:51:08,772 - INFO - Logged response: 8d563af9-3cdd-466d-af8d-3a4de680c55c (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:15,722 - INFO - Logged response: d3a4225e-4b51-48a7-b41a-fb2a49b81853 (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:30,607 - INFO - Logged response: 6fd79f95-a064-43bc-ba5b-3ce7a0f3cefa (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:39,256 - INFO - Logged response: 92167a9c-062e-4a64-9ad5-cf88c65b4f1c (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:48,648 - INFO - Logged response: eb0bf4e3-18b6-468f-87ab-9416b240fe02 (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:57,447 - INFO - Logged response: 4e41f0d4-053d-4914-b93d-0307783bfd52 (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 1de41adb-8558-4d70-b450-5b021c8cba7c)
+2025-12-24 19:51:57,987 - INFO - Logged response: 2fefe1cb-35f9-4109-a07b-d326ef555ebc (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 58748974-cb0d-4f6b-89d1-3684ef55ae35)
+2025-12-24 19:51:58,327 - INFO - Logged response: 257b3be8-5a30-44d4-97bd-fae872c83f09 (Run: 763aeb2e-b653-4946-8b0c-136fbc94d646, Agent: 1de41adb-8558-4d70-b450-5b021c8cba7c)
+2025-12-24 19:53:54,284 - INFO - Created Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c (Run 1/2 [Batch 22ad5e18])
+2025-12-24 19:54:02,219 - INFO - Logged response: e2aaafad-7444-42d2-958f-3b5dab030803 (Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c, Agent: f52669e0-6e80-40b1-8dbe-c73158312d6a)
+2025-12-24 19:54:10,355 - INFO - Logged response: c1ace699-6faa-48a3-aa34-d6465e37747a (Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c, Agent: f52669e0-6e80-40b1-8dbe-c73158312d6a)
+2025-12-24 19:54:19,231 - INFO - Logged response: f92dcbb2-e3a6-4c1b-98fc-103ceae11f41 (Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c, Agent: f52669e0-6e80-40b1-8dbe-c73158312d6a)
+2025-12-24 19:54:27,132 - INFO - Logged response: e73734a2-fad4-45b5-bea9-35d081e07492 (Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c, Agent: f52669e0-6e80-40b1-8dbe-c73158312d6a)
+2025-12-24 19:54:36,759 - INFO - Logged response: 29355104-f216-49f6-b368-b01318787546 (Run: c44a7b91-8114-43ae-ac93-1e11c5de9f3c, Agent: f52669e0-6e80-40b1-8dbe-c73158312d6a)

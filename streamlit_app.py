@@ -23,35 +23,46 @@ from nuke_db import nuke_db
 st.sidebar.header("Run Management")
 
 # 1. Fetch History
-all_runs = get_all_run_headers() # [(id, name, status, created_at, completed_at), ...]
+all_runs = get_all_run_headers() # Ordered DESC by DB
 
 # Determine Active Run globally
 global_active_run = get_active_run() # (id, name, created_at)
 
-# Format options for selectbox
-run_options = {}
-default_index = 0
+# Process for display:
+# We want Run #1, Run #2 labels based on creation time.
+# DB returns DESC (Newest First).
+# So reverse to get Oldest First for indexing.
+runs_asc = sorted(all_runs, key=lambda x: x[3]) # Sort by created_at
 
-if all_runs:
-    for i, r in enumerate(all_runs):
-        rid, name, status, created_at, completed_at = r
-        # Label: "[Running] Batch Exec... (10:00:05)"
-        time_str = created_at.strftime('%m-%d %H:%M')
-        label = f"[{status.upper()}] {name} ({time_str})"
-        run_options[label] = rid
+run_options = {}
+# Build map: Label -> ID
+for i, r in enumerate(runs_asc):
+    rid, name, status, created_at, completed_at = r
+    # Name format: "Run X/Y [Batch ID]"
+    time_str = created_at.strftime('%H:%M')
+    
+    # Custom Label
+    label = f"Run #{i+1} - {name} ({time_str})"
         
-        # If this is the active run, try to set as default if not manually overridden?
-        # Streamlit resets on rerun, so we need to be careful.
-        # Logic: If global_active_run exists, default to it? 
-        # But if user selected another one, we want to stay there.
-        # We'll rely on Streamlit's widget state persistence basically.
+    if status == 'running':
+        label = f"🟢 {label}"
+    elif status == 'completed':
+        label = f"✅ {label}"
+    elif status == 'terminated':
+        label = f"🔴 {label}"
         
-else:
+    run_options[label] = rid
+
+# Reverse options for Sidebar (Newest First)
+runs_display_order = list(run_options.keys())[::-1]
+
+if not runs_display_order:
     run_options = {"No Runs Available": None}
+    runs_display_order = ["No Runs Available"]
 
 # Run Selector
-selected_label = st.sidebar.selectbox("Select Run to View", options=list(run_options.keys()))
-selected_run_id = run_options[selected_label]
+selected_label = st.sidebar.selectbox("Select Run to View", options=runs_display_order)
+selected_run_id = run_options.get(selected_label)
 
 st.sidebar.markdown("---")
 
@@ -74,17 +85,22 @@ else:
 st.sidebar.markdown("---")
 
 # 3. Nuke
+# 3. Nuke
 with st.sidebar.expander("☢️ NUKE DATABASE", expanded=False):
-    st.caption("WARNING: This will wipe all data.")
-    access_code = st.text_input("Enter Access Code", type="password")
-    if st.button("CONFIRM NUKE", type="secondary", use_container_width=True):
-        if access_code == "password":
-            nuke_db()
-            st.toast("Database Nuked Successfully.")
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("Invalid Code")
+    if global_active_run:
+        st.error("🚫 Nuke Disabled: Run in progress.")
+        st.caption("Terminate the current run first.")
+    else:
+        st.caption("WARNING: This will wipe all data.")
+        access_code = st.text_input("Enter Access Code", type="password")
+        if st.button("CONFIRM NUKE", type="secondary", use_container_width=True, key="nuke_global_btn"):
+            if access_code == "password":
+                nuke_db()
+                st.toast("Database Nuked Successfully.")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("Invalid Code")
 
 # --- MAIN VIEW ---
 
