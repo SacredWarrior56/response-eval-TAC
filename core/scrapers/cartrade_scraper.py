@@ -100,15 +100,24 @@ async def wait_for_response_completion(page, max_wait_time=60, response_index=-1
                 "Interpreting your query",
                 "Thinking",
                 "Generating response",
-                "Please wait"
+                "Please wait",
+                "Understanding your intent",
+                "Understanding your intent ...",
+                "Understanding your intent...",
+                "Understanding your intent ..."
             ]
             for phrase in LOADING_PHRASES:
                 if phrase.lower() in current_text.lower():
                     is_loading_text = True
                     break
             
+            # Fail fast if "Something went wrong"
+            if "something went wrong" in current_text.lower():
+                 print("  ⚠️ Detected 'Something went wrong'. Raising exception to trigger retry.")
+                 raise Exception("CarTrade UI Error: Something went wrong")
+
             if is_loading_text:
-                    # It's a loading state, keep waiting even if stable
+                # It's a loading state, keep waiting even if stable
                 await asyncio.sleep(check_interval)
                 continue
 
@@ -192,7 +201,7 @@ async def submit_query(page, query, query_id, total_queries):
             
             await asyncio.sleep(0.5)
 
-        response_text = await wait_for_response_completion(page, max_wait_time=300)
+        response_text = await wait_for_response_completion(page, max_wait_time=90)
 
         response_end_time = time.time()
         response_duration = response_end_time - submit_start_time
@@ -209,6 +218,23 @@ async def submit_query(page, query, query_id, total_queries):
         
         print("Response captured via stability check.")
         response = response_text
+        
+        # FINAL VALIDATION: Ensure we didn't just get a loading phrase
+        # If we timed out while 'Understanding your intent', we must fail so we retry.
+        is_invalid = False
+        LOADING_PHRASES_FINAL = [
+            "interpreting your query", "thinking", "generating response", 
+            "please wait", "understanding your intent"
+        ]
+        if response:
+            for phrase in LOADING_PHRASES_FINAL:
+                if phrase in response.lower():
+                    is_invalid = True
+                    break
+        
+        if is_invalid:
+             print(f"❌ Invalid final response detected: '{response}'. Raising exception for retry.")
+             raise Exception(f"CarTrade returned invalid placeholder: {response}")
 
         preview = response[:100] if len(response) > 100 else response
         print(f"Response {query_id}/{total_queries}: {preview}")

@@ -143,7 +143,8 @@ async def submit_query(page, query, query_id, total_queries):
             "thinking", 
             "generating response", 
             "please wait",
-            "verifying query"
+            "verifying query",
+            "understanding your intent"
         ]
         
         for _ in range(15): # Retry up to 15 times (30 seconds)
