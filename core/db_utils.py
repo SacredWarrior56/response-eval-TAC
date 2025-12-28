@@ -240,3 +240,54 @@ def get_all_run_headers():
         cur.close()
         conn.close()
 
+def delete_run(run_id):
+    """Delete a run and all associated responses."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. Delete Responses
+        cur.execute("DELETE FROM responses WHERE run_id = %s", (run_id,))
+        # 2. Delete Run
+        cur.execute("DELETE FROM runs WHERE id = %s", (run_id,))
+        conn.commit()
+    except Exception as e:
+        db_logger.error(f"Delete Run Error: {e}")
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+def get_full_data_dump():
+    """Fetch all data for export."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Fetch data to be pivoted in Python
+        cur.execute("""
+            SELECT 
+                r.name, 
+                r.created_at, 
+                q.query_text, 
+                a.name, 
+                res.response_text, 
+                res.metadata
+            FROM responses res
+            JOIN runs r ON res.run_id = r.id
+            JOIN queries q ON res.query_id = q.id
+            JOIN agents a ON res.agent_id = a.id
+            ORDER BY r.created_at DESC, q.id
+        """)
+        
+        cols = ['run_name', 'run_created_at', 'query', 'agent', 'response', 'metadata']
+        results = []
+        for row in cur.fetchall():
+            d = dict(zip(cols, row))
+            if d['metadata']:
+                if isinstance(d['metadata'], str):
+                    d['metadata'] = json.loads(d['metadata'])
+            results.append(d)
+        return results
+    finally:
+        cur.close()
+        conn.close()
