@@ -5,6 +5,7 @@ import signal
 import os
 import sys
 import time
+import json
 import pandas as pd
 from datetime import datetime, timezone
 from core.db_utils import get_active_run, get_recent_responses, update_run_status, get_run_stats, get_last_completed_run, ensure_metadata_column, get_all_run_headers
@@ -183,6 +184,14 @@ if selected_run_id:
                  except: pass
                  update_run_status(rid, 'terminated')
                  st.rerun()
+        else:
+            # Delete Control (Only if NOT running)
+            from core.db_utils import delete_run
+            if st.button("🗑️ DELETE RUN", type="secondary"):
+                delete_run(rid)
+                st.toast(f"Deleted Run: {rname}")
+                time.sleep(1)
+                st.rerun()
         
         # Feed
         st.markdown("---")
@@ -261,3 +270,118 @@ if selected_run_id and 'rstatus' in locals() and rstatus == 'completed':
          if 0 <= diff < 10:
              st.balloons()
              st.success("🎉 Run Completed!")
+
+# --- GLOBAL EXCEL DOWNLOAD ---
+# Added at the bottom or sidebar. User asked for sidebar button or somewhere visible.
+# "Do not allow to download the excel during a run is going on."
+if not global_active_run:
+    from core.db_utils import get_full_data_dump
+    import io
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📥 Export Data")
+    
+    # We use a button to trigger generation, then show download button, 
+    # OR just a download button that calls a function.
+    # st.download_button's 'data' arg can be a callback or computed on render.
+    # Since we want it robust, we can compute it on press? No, download_button needs data ready.
+    # If the DB is large, this is slow on every re-run.
+    # BUT, we only show it when NO run is active, so re-runs are triggered by user interaction (clicks).
+    # So it might be okay.
+    
+    # Or optimize: Only fetch when user clicks "Prepare Download"?
+    # User said: "have a button called download excel".
+    
+    # Let's try direct download button. If it's too slow, we'll cache it.
+    
+    @st.cache_data(ttl=60, show_spinner="Preparing Excel...")
+    def get_excel_bytes():
+        import json  # Import here for cached function scope
+        raw_data = get_full_data_dump()
+        if not raw_data:
+            return None
+        
+        # Group by runs first
+        runs_data = {}
+        for row in raw_data:
+            run_name = row['run_name']
+            run_date = row['run_created_at']
+            if run_date.tzinfo is not None:
+                run_date = run_date.replace(tzinfo=None)
+            
+            if run_name not in runs_data:
+                runs_data[run_name] = {
+                    'date': run_date,
+                    'queries': {}
+                }
+            
+            query = row['query']
+            agent = row['agent']
+            
+            if query not in runs_data[run_name]['queries']:
+                runs_data[run_name]['queries'][query] = {
+                    'Query': query,
+                    'Vyas': None,
+                    'CarTrade': None,
+                    'ChatGPT': None,
+                    'Metadata': {}
+                }
+            
+            if agent in ['Vyas', 'CarTrade', 'ChatGPT']:
+                runs_data[run_name]['queries'][query][agent] = row['response']
+                runs_data[run_name]['queries'][query]['Metadata'][agent] = row['metadata']
+        
+        # Sort runs by date (ascending order)
+        sorted_runs = sorted(runs_data.items(), key=lambda x: x[1]['date'])
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for idx, (run_name, run_info) in enumerate(sorted_runs):
+                # Create sheet for this run
+                rows = []
+                for query_text, query_data in run_info['queries'].items():
+                    # Stringify metadata
+                    meta_str = json.dumps(query_data['Metadata'], indent=2)
+                    rows.append({
+                        'Query': query_data['Query'],
+                        'Vyas': query_data['Vyas'],
+                        'CarTrade': query_data['CarTrade'],
+                        'ChatGPT': query_data['ChatGPT'],
+                        'Metadata': meta_str
+                    })
+                
+                df = pd.DataFrame(rows)
+                
+                # Clean sheet name (Excel has limits)
+                sheet_name = f"Run {idx + 1}"
+                if len(run_name) < 25:
+                    sheet_name = run_name[:31]  # Excel sheet name limit is 31 chars
+                
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
+                
+                # Auto-adjust column widths
+                worksheet = writer.sheets[sheet_name]
+                worksheet.column_dimensions['A'].width = 50  # Query
+                worksheet.column_dimensions['B'].width = 60  # Vyas
+                worksheet.column_dimensions['C'].width = 60  # CarTrade
+                worksheet.column_dimensions['D'].width = 60  # ChatGPT
+                worksheet.column_dimensions['E'].width = 40  # Metadata
+        
+        return output.getvalue()
+
+    # The button
+    # To avoid re-fetching on every script run (which happens on every interaction), we used cache.
+    # But cache key needs to depend on DB state? 
+    # Actually, get_excel_bytes is cached. If data changed, we need to invalidate. 
+    # 'ttl=60' helps.
+    
+    excel_data = get_excel_bytes()
+    if excel_data:
+        st.sidebar.download_button(
+            label="📊 Download Excel",
+            data=excel_data,
+            file_name=f"scraper_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.sidebar.warning("No data found to export.")
