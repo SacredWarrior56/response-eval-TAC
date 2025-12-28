@@ -5,6 +5,7 @@ import signal
 import os
 import sys
 import time
+import json
 import pandas as pd
 from datetime import datetime, timezone
 from core.db_utils import get_active_run, get_recent_responses, update_run_status, get_run_stats, get_last_completed_run, ensure_metadata_column, get_all_run_headers
@@ -295,64 +296,77 @@ if not global_active_run:
     
     @st.cache_data(ttl=60, show_spinner="Preparing Excel...")
     def get_excel_bytes():
+        import json  # Import here for cached function scope
         raw_data = get_full_data_dump()
         if not raw_data:
             return None
         
-        df = pd.DataFrame(raw_data)
-        
-        # Pivot or ensure columns: Query, Vyas, CarTrade, ChatGPT, Metadata
-        # raw_data has: run_name, run_created_at, query, agent, response, metadata
-        # We need to pivot to Query level? USER SAID: "Query, Vyas, CarTrade, ChatGPT, metadata"
-        # Since we have runs, if we just dump all data, we have duplicates for query.
-        # User said: "The excel downloaded should have all the data dumped on the database so far."
-        # So I will keep 'Run Name' and 'Time' as columns, and pivot Agents.
-        
-        # Pivot: Index=[Run Name, Time, Query], Columns=[Agent], Values=[Response, Metadata]
-        # This is tricky because we want Vyas Response AND Meta, CarTrade Response AND Meta.
-        # Simpler: Just One row per response? No, "Query, Vyas, CarTrade, ChatGPT, metadata" implies wide format.
-        
-        # Let's try to group by (Run, Query).
-        # We'll construct a new list of dicts.
-        
-        grouped = {}
+        # Group by runs first
+        runs_data = {}
         for row in raw_data:
-            key = (row['run_name'], row['run_created_at'], row['query'])
-            if key not in grouped:
-                grouped[key] = {
-                    'Run Name': row['run_name'],
-                    'Run Date': row['run_created_at'],
-                    'Query': row['query'],
+            run_name = row['run_name']
+            run_date = row['run_created_at']
+            if run_date.tzinfo is not None:
+                run_date = run_date.replace(tzinfo=None)
+            
+            if run_name not in runs_data:
+                runs_data[run_name] = {
+                    'date': run_date,
+                    'queries': {}
+                }
+            
+            query = row['query']
+            agent = row['agent']
+            
+            if query not in runs_data[run_name]['queries']:
+                runs_data[run_name]['queries'][query] = {
+                    'Query': query,
                     'Vyas': None,
                     'CarTrade': None,
                     'ChatGPT': None,
-                    'Metadata': {} 
+                    'Metadata': {}
                 }
             
-            agent = row['agent']
             if agent in ['Vyas', 'CarTrade', 'ChatGPT']:
-                grouped[key][agent] = row['response']
-                # Aggregate metadata
-                grouped[key]['Metadata'][agent] = row['metadata']
-                
-        # Convert back to list
-        final_rows = []
-        for k, v in grouped.items():
-            # Stringify metadata
-            v['Metadata'] = json.dumps(v['Metadata'], indent=2)
-            final_rows.append(v)
-            
-        df_pivot = pd.DataFrame(final_rows)
+                runs_data[run_name]['queries'][query][agent] = row['response']
+                runs_data[run_name]['queries'][query]['Metadata'][agent] = row['metadata']
         
-        # Reorder columns
-        cols = ['Run Name', 'Run Date', 'Query', 'Vyas', 'CarTrade', 'ChatGPT', 'Metadata']
-        # Filter only existing cols
-        existing_cols = [c for c in cols if c in df_pivot.columns]
-        df_pivot = df_pivot[existing_cols]
+        # Sort runs by date (ascending order)
+        sorted_runs = sorted(runs_data.items(), key=lambda x: x[1]['date'])
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_pivot.to_excel(writer, index=False, sheet_name='All Data')
+            for idx, (run_name, run_info) in enumerate(sorted_runs):
+                # Create sheet for this run
+                rows = []
+                for query_text, query_data in run_info['queries'].items():
+                    # Stringify metadata
+                    meta_str = json.dumps(query_data['Metadata'], indent=2)
+                    rows.append({
+                        'Query': query_data['Query'],
+                        'Vyas': query_data['Vyas'],
+                        'CarTrade': query_data['CarTrade'],
+                        'ChatGPT': query_data['ChatGPT'],
+                        'Metadata': meta_str
+                    })
+                
+                df = pd.DataFrame(rows)
+                
+                # Clean sheet name (Excel has limits)
+                sheet_name = f"Run {idx + 1}"
+                if len(run_name) < 25:
+                    sheet_name = run_name[:31]  # Excel sheet name limit is 31 chars
+                
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
+                
+                # Auto-adjust column widths
+                worksheet = writer.sheets[sheet_name]
+                worksheet.column_dimensions['A'].width = 50  # Query
+                worksheet.column_dimensions['B'].width = 60  # Vyas
+                worksheet.column_dimensions['C'].width = 60  # CarTrade
+                worksheet.column_dimensions['D'].width = 60  # ChatGPT
+                worksheet.column_dimensions['E'].width = 40  # Metadata
+        
         return output.getvalue()
 
     # The button
