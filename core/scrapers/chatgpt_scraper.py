@@ -30,15 +30,13 @@ CHATGPT_URL = "https://chatgpt.com"
 # Selectors
 INPUT_SELECTOR = "#prompt-textarea"
 SEND_BUTTON_SELECTOR = '[data-testid="send-button"]'
-# When generating, the send button usually changes to a stop button or disappears
-STOP_BUTTON_SELECTOR = '[data-testid="stop-button"]' 
-RESPONSE_SELECTOR = '.markdown' # Common class for message content
+CONTINUE_BUTTON_SELECTOR = "button:has-text('Continue generating')"
 
 # Session configuration
 session_config = CreateSessionParams(
     use_stealth=True,
     use_proxy=False,
-    solve_captchas=True  # ChatGPT often requires captcha solving
+    solve_captchas=True
 )
 
 QUERIES = [
@@ -47,35 +45,38 @@ QUERIES = [
 ]
 
 async def wait_for_response_completion(page, max_wait_time=120):
-    """Wait for chatbot response by watching for the 'Send' button to reappear."""
-    
-    # 1. Wait for the 'Stop' button to appear (indicating generation started)
-    #    OR wait for the Send button to disappear.
-    try:
-        # Give it a moment to switch states
-        await asyncio.sleep(2)
-        # If the send button is still there, maybe it was instant or failed?
-        # We'll assume generation starts if we see stop button OR input is disabled/send missing
-    except Exception:
-        pass
+    """
+    Wait for chatbot response.
+    Handles 'Continue generating' by clicking it until full response is done.
+    """
+    # 1. Initial wait for generation to start
+    await asyncio.sleep(2)
 
-    # 2. Polling loop: Wait until 'Send' button is visible and enabled again
     start_time = time.time()
+    
     while (time.time() - start_time) < max_wait_time:
-        is_send_visible = await page.is_visible(SEND_BUTTON_SELECTOR)
-        if is_send_visible:
-            # extra safety buffer for rendering
-            await asyncio.sleep(2) 
-            return True
+        # Check if "Continue generating" button is visible
+        if await page.is_visible(CONTINUE_BUTTON_SELECTOR):
+            print("  Found 'Continue generating' button. Clicking...")
+            await page.click(CONTINUE_BUTTON_SELECTOR)
+            # Reset timeout since we are generating more
+            start_time = time.time() 
+            await asyncio.sleep(2)
+            continue
+
+        # Check if "Send" button is visible (Standard completion)
+        if await page.is_visible(SEND_BUTTON_SELECTOR):
+            # Double check that Continue button didn't pop up in the meantime
+            await asyncio.sleep(1)
+            if not await page.is_visible(CONTINUE_BUTTON_SELECTOR):
+                return True
+
         await asyncio.sleep(1)
     
     return False
 
 async def extract_last_response(page):
     """Extract the text of the latest response."""
-    # We get all markdown divs and take the last one.
-    # Note: This assumes the conversation view. User prompts are also sometimes distinct.
-    # A more robust selector usually involves data-message-author-role="assistant"
     return await page.evaluate('''
         () => {
             const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
@@ -90,41 +91,36 @@ async def submit_query(page, query, query_id, total_queries):
     try:
         print(f"Processing query {query_id}/{total_queries}: {query[:60]}...")
         
-        # Check if input is available
         await page.wait_for_selector(INPUT_SELECTOR, timeout=30000)
         
-        # Click and fill
         await page.click(INPUT_SELECTOR)
         await asyncio.sleep(0.5)
-        # Clear existing text if any (sanity check)
         await page.fill(INPUT_SELECTOR, "")
         await page.fill(INPUT_SELECTOR, query)
         await asyncio.sleep(1)
         
         # Send
         start_time = time.time()
-        # Prefer clicking the button if available, or Enter
         if await page.is_visible(SEND_BUTTON_SELECTOR):
             await page.click(SEND_BUTTON_SELECTOR)
         else:
             await page.keyboard.press("Enter")
             
-        # Wait for response
-        completed = await wait_for_response_completion(page, max_wait_time=120)
+        # Wait for response with Continue Generating support
+        completed = await wait_for_response_completion(page, max_wait_time=180)
         response_duration = time.time() - start_time
         
         if not completed:
             print(f"  ⚠️ Timeout waiting for response completion (Query {query_id})")
         
-        # Extract
         response_text = await extract_last_response(page)
         
-        # Validate extraction
         if not response_text:
             print("  ❌ Failed to extract response text.")
         else:
-            preview = response_text[:100].replace('\n', ' ')
-            print(f"  ✓ Response captured: {preview}...")
+            # Show a slightly longer preview to verify
+            preview = response_text[:200].replace('\n', ' ')
+            print(f"  ✓ Response captured ({len(response_text)} chars): {preview}...")
 
         return {
             'query': query,
@@ -174,20 +170,12 @@ async def chatgpt_chatbot_scraper(queries=None, api_key=None, on_result=None):
             print(f"Navigating to {CHATGPT_URL}...")
             await page.goto(CHATGPT_URL)
             
-            # NOTE: ChatGPT might redirect to login. 
-            # Dealing with login (SSO/Email) is complex and requires credentials.
-            # This scraper assumes the session is either guest-allowed or stealth enough 
-            # to get the free interface immediately.
-            
-            # Initial wait for interface to load
             try:
                 await page.wait_for_selector(INPUT_SELECTOR, timeout=30000)
                 print("ChatGPT interface loaded.")
             except Exception:
                 print("⚠️ Could not find input selector immediately. Check if login is required.")
-                # Snapshot for debugging could be useful here
             
-            # Process Queries
             for query_id, query in enumerate(queries, 1):
                 result = await submit_query(page, query, query_id, len(queries))
                 results.append(result)
@@ -202,11 +190,9 @@ async def chatgpt_chatbot_scraper(queries=None, api_key=None, on_result=None):
 
     except Exception as e:
         print(f"Error in scraper: {e}")
-        # Re-raise rate limits/critical errors
         if "429" in str(e) or "503" in str(e):
             raise e
         
-        # Fill failed results for remaining queries
         if not results and queries:
             for q in queries:
                 results.append({'query': q, 'status': 'failed', 'error': str(e)})
@@ -225,11 +211,9 @@ def check_setup():
     if not os.path.exists(ENV_PATH) and not os.path.exists('.env'):
         print(f"❌ .env file not found!")
         return False
-    
     if not HYPERBROWSER_API_KEY:
         print("❌ HYPERBROWSER_API_KEY not set!")
         return False
-        
     print("✅ Setup looks good!\n")
     return True
 
@@ -237,15 +221,12 @@ async def main():
     """Main entry point."""
     if not check_setup():
         return
-    
     results = await chatgpt_chatbot_scraper()
-    
     filename = f"chatgpt_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     print(f"\n✅ Saved results to: {filename}")
 
-# Alias to maintain compatibility with wrapper
 chatgpt_query_processor_async = chatgpt_chatbot_scraper
 
 if __name__ == "__main__":
