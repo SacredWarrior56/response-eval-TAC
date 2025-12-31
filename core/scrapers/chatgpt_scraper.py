@@ -16,7 +16,7 @@ load_dotenv(ENV_PATH)
 OPENAI_API_KEY = os.getenv("OPENAI_KEY")
 
 # Configuration
-MODEL = "gpt-4o"  # Updated to gpt-4o for web search API
+MODEL = "gpt-5.2"  # Updated to gpt-4o for web search API
 
 # System prompt for factual, grounded responses
 SYSTEM_PROMPT = """You are a highly accurate research assistant with access to real-time web search capabilities.
