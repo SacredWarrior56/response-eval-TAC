@@ -1,233 +1,128 @@
-# UI Scraper for chatgpt.com (Hyperbrowser + Playwright)
+# ChatGPT scraper (Async & Concurrent)
 import os
+import json
+import time
 import asyncio
 from dotenv import load_dotenv
-from hyperbrowser import AsyncHyperbrowser
-from hyperbrowser.models import CreateSessionParams
-from playwright.async_api import async_playwright
+from openai import AsyncOpenAI
 from datetime import datetime
-import time
-import json
 
 # Load environment variables
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 ENV_PATH = os.path.join(PROJECT_ROOT, '.env')
+load_dotenv(ENV_PATH)
 
-try:
-    load_dotenv(ENV_PATH)
-    print(f"✅ Loaded .env file from: {ENV_PATH}")
-except Exception as e:
-    print(f"⚠️ Warning: Could not load .env file from {ENV_PATH}: {e}")
-    try:
-        load_dotenv()
-    except Exception as e2:
-        print(f"❌ Failed to load .env file: {e2}")
+OPENAI_API_KEY = os.getenv("OPENAI_KEY")
 
-HYPERBROWSER_API_KEY = os.getenv("HYPERBROWSER_API_KEY")
-CHATGPT_URL = "https://chatgpt.com"
+# Configuration
+MODEL = "gpt-4o"  # Updated to gpt-4o for web search API
 
-# Selectors
-INPUT_SELECTOR = "#prompt-textarea"
-SEND_BUTTON_SELECTOR = '[data-testid="send-button"]'
-CONTINUE_BUTTON_SELECTOR = "button:has-text('Continue generating')"
+# System prompt for factual, grounded responses
+SYSTEM_PROMPT = """You are a highly accurate research assistant with access to real-time web search capabilities.
 
-# Session configuration
-session_config = CreateSessionParams(
-    use_stealth=True,
-    use_proxy=False,
-    solve_captchas=True
-)
+Your primary objectives are:
+1. FACTUAL ACCURACY: Provide only information that is directly supported by web search results
+2. RELEVANCE: Focus on answering the specific query asked, staying on topic
+3. GROUNDING: Base all claims on verifiable sources from the web search results
+4. COMPLETENESS: Provide comprehensive answers that fully address the user's question
 
-QUERIES = [
-    "What are the best SUVs?", 
-    "Show me sedans with best mileage"
-]
+Guidelines:
+- Always prioritize current, up-to-date information from reliable sources
+- When stating facts, ensure they are directly found in the search results
+- If search results are insufficient or contradictory, acknowledge this limitation
+- Avoid speculation or assumptions beyond what the sources provide
+- For questions about current prices, specifications, or timely information, rely heavily on recent web data
+- Organize information clearly and logically
+- When relevant, mention the timeframe or recency of the information
+- If the search results don't contain enough information to answer fully, say so honestly
 
-async def wait_for_response_completion(page, max_wait_time=120):
-    """
-    Wait for chatbot response.
-    Handles 'Continue generating' by clicking it until full response is done.
-    """
-    # 1. Initial wait for generation to start
-    await asyncio.sleep(2)
+Remember: Your value comes from providing accurate, grounded information based on web search, not from generating plausible-sounding but unverified content."""
 
-    start_time = time.time()
+# Default queries
+QUERIES = ["What are the best SUVs?", "Show me sedans with best mileage"]
+
+async def submit_query_async(client, query, query_id=None, total=None):
+    """Submit a query to ChatGPT API asynchronously using web search."""
+    if not OPENAI_API_KEY:
+        return {'query': query, 'response': None, 'status': 'failed', 'error': 'OPENAI_API_KEY missing'}
     
-    while (time.time() - start_time) < max_wait_time:
-        # Check if "Continue generating" button is visible
-        if await page.is_visible(CONTINUE_BUTTON_SELECTOR):
-            print("  Found 'Continue generating' button. Clicking...")
-            await page.click(CONTINUE_BUTTON_SELECTOR)
-            # Reset timeout since we are generating more
-            start_time = time.time() 
-            await asyncio.sleep(2)
-            continue
-
-        # Check if "Send" button is visible (Standard completion)
-        if await page.is_visible(SEND_BUTTON_SELECTOR):
-            # Double check that Continue button didn't pop up in the meantime
-            await asyncio.sleep(1)
-            if not await page.is_visible(CONTINUE_BUTTON_SELECTOR):
-                return True
-
-        await asyncio.sleep(1)
+    start_time = datetime.now()
+    max_retries = 3
+    base_delay = 2
     
-    return False
-
-async def extract_last_response(page):
-    """Extract the text of the latest response."""
-    return await page.evaluate('''
-        () => {
-            const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-            if (msgs.length === 0) return "";
-            const lastMsg = msgs[msgs.length - 1];
-            return lastMsg.innerText.trim();
-        }
-    ''')
-
-async def submit_query(page, query, query_id, total_queries):
-    """Submit a single query to the chatbot."""
-    try:
-        print(f"Processing query {query_id}/{total_queries}: {query[:60]}...")
-        
-        await page.wait_for_selector(INPUT_SELECTOR, timeout=30000)
-        
-        await page.click(INPUT_SELECTOR)
-        await asyncio.sleep(0.5)
-        await page.fill(INPUT_SELECTOR, "")
-        await page.fill(INPUT_SELECTOR, query)
-        await asyncio.sleep(1)
-        
-        # Send
-        start_time = time.time()
-        if await page.is_visible(SEND_BUTTON_SELECTOR):
-            await page.click(SEND_BUTTON_SELECTOR)
-        else:
-            await page.keyboard.press("Enter")
+    for attempt in range(max_retries):
+        try:
+            # Use responses.create with web_search tool
+            response = await client.responses.create(
+                model=MODEL,
+                instructions=SYSTEM_PROMPT,
+                tools=[
+                    {"type": "web_search"},
+                ],
+                input=query
+            )
             
-        # Wait for response with Continue Generating support
-        completed = await wait_for_response_completion(page, max_wait_time=180)
-        response_duration = time.time() - start_time
-        
-        if not completed:
-            print(f"  ⚠️ Timeout waiting for response completion (Query {query_id})")
-        
-        response_text = await extract_last_response(page)
-        
-        if not response_text:
-            print("  ❌ Failed to extract response text.")
-        else:
-            # Show a slightly longer preview to verify
-            preview = response_text[:200].replace('\n', ' ')
-            print(f"  ✓ Response captured ({len(response_text)} chars): {preview}...")
+            # Extract the response text
+            response_text = response.output_text
+            
+            result = {
+                'query': query,
+                'response': response_text,
+                'status': 'success',
+                'model': MODEL,
+                'tokens_used': None,  # Token usage not available in responses API
+                'response_length_chars': len(response_text),
+                'response_word_count': len(response_text.split()),
+                'processing_time_seconds': (datetime.now() - start_time).total_seconds(),
+                'timestamp': start_time.isoformat()
+            }
+            
+            if query_id and total:
+                print(f"✓ ChatGPT: Query {query_id}/{total} finished in {result['processing_time_seconds']:.2f}s (with web search)")
+            return result
 
-        return {
-            'query': query,
-            'response': response_text,
-            'status': "success" if response_text else "failed",
-            'response_time_seconds': response_duration,
-            'response_length_chars': len(response_text) if response_text else 0,
-            'response_word_count': len(response_text.split()) if response_text else 0,
-            'timestamp': datetime.now().isoformat() 
-        }
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries - 1:
+                wait = base_delay * (2 ** attempt)
+                print(f"⚠️ ChatGPT Rate Limit. Retry in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                return {
+                    'query': query, 'response': None, 'status': 'failed', 
+                    'error': str(e), 'timestamp': datetime.now().isoformat()
+                }
 
-    except Exception as e:
-        print(f"Error in submit_query {query_id}: {e}")
-        return {
-            'query': query,
-            'response': None,
-            'status': "error",
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }
-
-async def chatgpt_chatbot_scraper(queries=None, api_key=None, on_result=None):
-    """Main scraper function using Hyperbrowser + Playwright."""
-    if queries is None:
-        queries = QUERIES
+async def chatgpt_query_processor_async(queries=None, on_result=None):
+    """Process queries concurrently."""
+    if not queries: queries = QUERIES
     
-    target_api_key = api_key or HYPERBROWSER_API_KEY
-    if not target_api_key:
-        raise ValueError("No Hyperbrowser API key provided and HYPERBROWSER_API_KEY not set")
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    
+    # Limit concurrency to 5 to be safe with OpenAI rate limits
+    sem = asyncio.Semaphore(5)
+    
+    async def worker(idx, q):
+        async with sem:
+            res = await submit_query_async(client, q, idx, len(queries))
+            # Callback
+            if on_result:
+                try:
+                    await on_result(res)
+                except Exception as e:
+                    print(f"Callback error: {e}")
+            return res
 
-    print(f"Initializing AsyncHyperbrowser...")
-    client = AsyncHyperbrowser(api_key=target_api_key)
-    session = None
-    results = []
-
-    try:
-        print("Creating Hyperbrowser session...")
-        session = await client.sessions.create(params=session_config)
-        print(f"Session ID: {session.id}")
-        
-        print("Connecting Playwright...")
-        async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp(session.ws_endpoint)
-            context = browser.contexts[0]
-            page = await context.new_page()
-            
-            print(f"Navigating to {CHATGPT_URL}...")
-            await page.goto(CHATGPT_URL)
-            
-            try:
-                await page.wait_for_selector(INPUT_SELECTOR, timeout=30000)
-                print("ChatGPT interface loaded.")
-            except Exception:
-                print("⚠️ Could not find input selector immediately. Check if login is required.")
-            
-            for query_id, query in enumerate(queries, 1):
-                result = await submit_query(page, query, query_id, len(queries))
-                results.append(result)
-                
-                if on_result:
-                    await on_result(result)
-                    
-                if query_id < len(queries):
-                    await asyncio.sleep(3)
-            
-            await browser.close()
-
-    except Exception as e:
-        print(f"Error in scraper: {e}")
-        if "429" in str(e) or "503" in str(e):
-            raise e
-        
-        if not results and queries:
-            for q in queries:
-                results.append({'query': q, 'status': 'failed', 'error': str(e)})
-
-    finally:
-        if session:
-            print("Stopping session...")
-            await client.sessions.stop(session.id)
-            print("Session closed")
-
+    tasks = [worker(i+1, q) for i, q in enumerate(queries)]
+    results = await asyncio.gather(*tasks)
     return results
 
-def check_setup():
-    """Check if setup is valid."""
-    print("🔍 Checking setup...\n")
-    if not os.path.exists(ENV_PATH) and not os.path.exists('.env'):
-        print(f"❌ .env file not found!")
-        return False
-    if not HYPERBROWSER_API_KEY:
-        print("❌ HYPERBROWSER_API_KEY not set!")
-        return False
-    print("✅ Setup looks good!\n")
-    return True
-
-async def main():
-    """Main entry point."""
-    if not check_setup():
+def main():
+    """Sync entry point for testing."""
+    if not OPENAI_API_KEY:
+        print("Error: OPENAI_API_KEY not set")
         return
-    results = await chatgpt_chatbot_scraper()
-    filename = f"chatgpt_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"\n✅ Saved results to: {filename}")
-
-chatgpt_query_processor_async = chatgpt_chatbot_scraper
+    asyncio.run(chatgpt_query_processor_async())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
