@@ -16,7 +16,7 @@ load_dotenv(ENV_PATH)
 OPENAI_API_KEY = os.getenv("OPENAI_KEY")
 
 # Configuration
-MODEL = "gpt-4o"  # Updated to gpt-4o for web search API
+MODEL = "gpt-5.2"  # Updated to gpt-4o for web search API
 
 # System prompt for factual, grounded responses
 SYSTEM_PROMPT = """You are a highly accurate research assistant with access to real-time web search capabilities.
@@ -66,12 +66,23 @@ async def submit_query_async(client, query, query_id=None, total=None):
             # Extract the response text
             response_text = response.output_text
             
+            # Extract token usage from response
+            tokens_used = None
+            prompt_tokens = None
+            completion_tokens = None
+            if hasattr(response, 'usage') and response.usage:
+                tokens_used = getattr(response.usage, 'total_tokens', None)
+                prompt_tokens = getattr(response.usage, 'prompt_tokens', None)
+                completion_tokens = getattr(response.usage, 'completion_tokens', None)
+            
             result = {
                 'query': query,
                 'response': response_text,
                 'status': 'success',
                 'model': MODEL,
-                'tokens_used': None,  # Token usage not available in responses API
+                'tokens_used': tokens_used,
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens,
                 'response_length_chars': len(response_text),
                 'response_word_count': len(response_text.split()),
                 'processing_time_seconds': (datetime.now() - start_time).total_seconds(),
